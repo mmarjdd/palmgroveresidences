@@ -127,7 +127,7 @@
   .ring{position:relative;width:56px;height:56px;flex-shrink:0;}
   .ring svg{transform:rotate(-90deg);}
   .ring-track{fill:none;stroke:var(--pale-sage);stroke-width:5;}
-  .ring-fill{fill:none;stroke:var(--forest-green);stroke-width:5;stroke-linecap:round;transition:stroke-dashoffset .4s ease;}
+  .ring-fill{fill:none;stroke:var(--forest-green);stroke-width:5;stroke-linecap:round;}
   .ring-label{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:var(--deep-forest);}
   .stat-body .stat-value{font-size:19px;font-weight:800;color:var(--deep-forest);line-height:1.2;}
   .stat-body .stat-label{font-size:11.5px;color:var(--sage);font-weight:600;}
@@ -945,6 +945,40 @@ function fmtDate(iso){
   return months[parseInt(m)-1]+' '+parseInt(d)+', '+y;
 }
 function ringOffset(pct){ pct=Math.max(0,Math.min(100,pct)); return Math.round(151 - (151*pct/100)); }
+
+const easeOutCubic = p => 1 - Math.pow(1-p, 3);
+
+function animateNumber(el, endValue, formatFn, duration){
+  if(!el) return;
+  duration = duration || 700;
+  const startValue = 0;
+  const start = performance.now();
+  function tick(now){
+    const p = Math.min((now-start)/duration, 1);
+    const eased = easeOutCubic(p);
+    const val = startValue + (endValue-startValue)*eased;
+    el.textContent = formatFn ? formatFn(val, p) : Math.round(val);
+    if(p<1) requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+}
+
+function animateRing(circleEl, labelEl, toPct, labelFormatFn, duration){
+  if(!circleEl) return;
+  duration = duration || 700;
+  const fromOffset = 151;
+  const toOffset = ringOffset(toPct);
+  const start = performance.now();
+  function tick(now){
+    const p = Math.min((now-start)/duration, 1);
+    const eased = easeOutCubic(p);
+    circleEl.setAttribute('stroke-dashoffset', fromOffset + (toOffset-fromOffset)*eased);
+    if(labelEl) labelEl.textContent = labelFormatFn ? labelFormatFn(toPct*eased, p) : Math.round(toPct*eased) + '%';
+    if(p<1) requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+}
+
 function unitStatusClass(status){
   if(status==='Active'||status==='Completed') return 'status-paid';
   if(status==='Vacant') return 'status-overdue';
@@ -1088,9 +1122,8 @@ function renderBillingResident(){
     <div class="payment-row"><div class="desc">Status</div><div class="amt"><span class="badge ${row.status.includes('Overdue')?'urgent':(row.status.includes('Paid')?'resolved':'due')}">${row.status}</span></div></div>`;
 
   const pct = row.totalDue ? Math.round((balance/row.totalDue)*100) : 0;
-  document.getElementById('ringBalance').setAttribute('stroke-dashoffset', ringOffset(pct));
-  document.getElementById('ringBalanceLabel').textContent = pct + '%';
-  document.getElementById('statBalanceValue').textContent = peso(balance);
+  animateRing(document.getElementById('ringBalance'), document.getElementById('ringBalanceLabel'), pct, v=>Math.round(v)+'%');
+  animateNumber(document.getElementById('statBalanceValue'), balance, v=>peso(v));
 
   const block = document.getElementById('upcomingPaymentBlock');
   if(balance>0){
@@ -1146,9 +1179,9 @@ function renderDashConcernsList(){
         <div class="req-title">${c.title}</div>
       </div>`).join('');
   }
-  document.getElementById('ringOpenReq').setAttribute('stroke-dashoffset', ringOffset(Math.min(rows.length*30,100)));
-  document.getElementById('ringOpenReqLabel').textContent = rows.length;
-  document.getElementById('statOpenReqValue').textContent = rows.length + ' Open';
+  animateRing(document.getElementById('ringOpenReq'), null, Math.min(rows.length*30,100));
+  animateNumber(document.getElementById('ringOpenReqLabel'), rows.length, v=>Math.round(v));
+  animateNumber(document.getElementById('statOpenReqValue'), rows.length, v=>Math.round(v)+' Open');
 }
 
 function renderConcernsAdmin(){
@@ -1198,9 +1231,9 @@ function renderAmenitiesResident(){
         <div class="req-meta">${r.time || 'Time TBD'} · ${r.guests || '—'} guests · ${r.purpose || '—'}</div>
       </div>`).join('');
   }
-  document.getElementById('ringReservations').setAttribute('stroke-dashoffset', ringOffset(Math.min(rows.length*30,100)));
-  document.getElementById('ringReservationsLabel').textContent = rows.length;
-  document.getElementById('statReservationsValue').textContent = rows.length + ' Booking' + (rows.length===1?'':'s');
+  animateRing(document.getElementById('ringReservations'), null, Math.min(rows.length*30,100));
+  animateNumber(document.getElementById('ringReservationsLabel'), rows.length, v=>Math.round(v));
+  animateNumber(document.getElementById('statReservationsValue'), rows.length, v=>Math.round(v)+' Booking'+(rows.length===1?'':'s'));
 }
 
 async function submitReservation(){
@@ -1443,26 +1476,24 @@ function renderDashboardStats(){
   const totalUnits = DB.units.length;
   const occupied = DB.units.filter(u=>u.status==='Active').length;
   const occPct = totalUnits ? Math.round(occupied/totalUnits*100) : 0;
-  document.getElementById('ringOccupancy').setAttribute('stroke-dashoffset', ringOffset(occPct));
-  document.getElementById('ringOccupancyLabel').textContent = occPct + '%';
-  document.getElementById('statOccupancyValue').textContent = occupied + ' / ' + totalUnits;
+  animateRing(document.getElementById('ringOccupancy'), document.getElementById('ringOccupancyLabel'), occPct, v=>Math.round(v)+'%');
+  animateNumber(document.getElementById('statOccupancyValue'), occupied, v=>Math.round(v)+' / '+totalUnits);
 
   const totalBilled = DB.billing.reduce((s,b)=>s+Number(b.totalDue),0);
   const totalCollected = DB.billing.reduce((s,b)=>s+Number(b.amountPaid),0);
   const colPct = totalBilled ? Math.round(totalCollected/totalBilled*100) : 0;
-  document.getElementById('ringCollection').setAttribute('stroke-dashoffset', ringOffset(colPct));
-  document.getElementById('ringCollectionLabel').textContent = colPct + '%';
-  document.getElementById('statCollectionValue').textContent = peso(totalCollected);
+  animateRing(document.getElementById('ringCollection'), document.getElementById('ringCollectionLabel'), colPct, v=>Math.round(v)+'%');
+  animateNumber(document.getElementById('statCollectionValue'), totalCollected, v=>peso(v));
 
   const openMaint = DB.concerns.filter(c=>c.dept==='facilities' && c.status!=='Resolved' && c.status!=='Closed').length;
-  document.getElementById('ringMaint').setAttribute('stroke-dashoffset', ringOffset(Math.min(openMaint*20,100)));
-  document.getElementById('ringMaintLabel').textContent = openMaint;
-  document.getElementById('statMaintValue').textContent = openMaint + ' Open';
+  animateRing(document.getElementById('ringMaint'), null, Math.min(openMaint*20,100));
+  animateNumber(document.getElementById('ringMaintLabel'), openMaint, v=>Math.round(v));
+  animateNumber(document.getElementById('statMaintValue'), openMaint, v=>Math.round(v)+' Open');
 
   const pending = DB.concerns.filter(c=>c.status!=='Resolved' && c.status!=='Closed').length;
-  document.getElementById('ringConcerns').setAttribute('stroke-dashoffset', ringOffset(Math.min(pending*20,100)));
-  document.getElementById('ringConcernsLabel').textContent = pending;
-  document.getElementById('statConcernsValue').textContent = pending + ' Pending';
+  animateRing(document.getElementById('ringConcerns'), null, Math.min(pending*20,100));
+  animateNumber(document.getElementById('ringConcernsLabel'), pending, v=>Math.round(v));
+  animateNumber(document.getElementById('statConcernsValue'), pending, v=>Math.round(v)+' Pending');
 
   const tasksList = document.getElementById('todaysTasksList');
   const openConcerns = DB.concerns.filter(c=>c.status!=='Resolved' && c.status!=='Closed').slice(0,4);
@@ -1638,6 +1669,8 @@ function goToPage(pageId, portal){
   scope.querySelectorAll('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.page === pageId));
   scope.querySelectorAll('.bottom-nav button').forEach(b => b.classList.toggle('active', b.dataset.page === pageId));
   window.scrollTo(0,0);
+  if(pageId==='r-dashboard'){ renderDashConcernsList(); renderBillingResident(); }
+  if(pageId==='a-dashboard'){ renderDashboardStats(); }
 }
 
 document.querySelectorAll('#residentNav .nav-item').forEach(b => b.addEventListener('click', () => goToPage(b.dataset.page, 'resident')));
